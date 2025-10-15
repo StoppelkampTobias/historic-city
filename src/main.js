@@ -26,6 +26,19 @@ class HistoricCityApp {
         this.isInitialized = false;
         this.isRunning = false;
         
+        // Performance Tracking
+        this.performanceMonitor = {
+            frameCount: 0,
+            lastTime: performance.now(),
+            fps: 0,
+            frameTime: 0,
+            lastFrameTime: performance.now(),
+            
+            // Speicher für FPS-Glättung
+            fpsSamples: [],
+            maxSamples: 60
+        };
+        
         this.init();
     }
     
@@ -47,7 +60,9 @@ class HistoricCityApp {
             this.cityGenerator = new CityGenerator(this.sceneManager.getScene());
             
             // 5. UI Controller - Event Handling
-            this.uiController = new UIController(this.lightingManager, this.sceneManager);
+            // UI Controller initialisieren und CameraManager verbinden
+        this.uiController = new UIController(this.lightingManager, this.sceneManager);
+        this.uiController.setCameraManager(this.sceneManager.getCameraManager());
             this.setupUICallbacks();
             
             // 6. Stadt generieren
@@ -171,6 +186,9 @@ class HistoricCityApp {
         
         requestAnimationFrame(() => this.animate());
         
+        // Performance Tracking
+        this.updatePerformanceMetrics();
+        
         // Update alle Manager
         const deltaTime = this.sceneManager.update();
         
@@ -182,30 +200,80 @@ class HistoricCityApp {
         // Render die Szene
         this.sceneManager.render();
         
-        // Debug Info (optional)
-        if (this.shouldShowDebugInfo()) {
+        // Debug Info (wenn aktiviert)
+        if (this.uiController.isDebugVisible()) {
             this.updateDebugInfo();
         }
     }
     
-    shouldShowDebugInfo() {
-        // Debug Info nur in Development Mode anzeigen
-        return this.uiController.isKeyPressed('KeyI') || 
-               window.location.search.includes('debug=true');
+    updatePerformanceMetrics() {
+        const now = performance.now();
+        const monitor = this.performanceMonitor;
+        
+        // Frame Time berechnen
+        monitor.frameTime = now - monitor.lastFrameTime;
+        monitor.lastFrameTime = now;
+        
+        // FPS berechnen
+        monitor.frameCount++;
+        
+        if (now - monitor.lastTime >= 1000) { // Jede Sekunde
+            const fps = Math.round((monitor.frameCount * 1000) / (now - monitor.lastTime));
+            
+            // FPS-Glättung mit gleitendem Durchschnitt
+            monitor.fpsSamples.push(fps);
+            if (monitor.fpsSamples.length > monitor.maxSamples) {
+                monitor.fpsSamples.shift();
+            }
+            
+            monitor.fps = Math.round(
+                monitor.fpsSamples.reduce((a, b) => a + b, 0) / monitor.fpsSamples.length
+            );
+            
+            monitor.frameCount = 0;
+            monitor.lastTime = now;
+        }
+    }
+    
+    getMemoryUsage() {
+        // Speicher-Info (falls verfügbar)
+        if (performance.memory) {
+            return {
+                used: Math.round(performance.memory.usedJSHeapSize / 1024 / 1024 * 100) / 100,
+                total: Math.round(performance.memory.totalJSHeapSize / 1024 / 1024 * 100) / 100,
+                limit: Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024 * 100) / 100
+            };
+        }
+        return null;
     }
     
     updateDebugInfo() {
         const renderer = this.sceneManager.getRenderer();
         const scene = this.sceneManager.getScene();
+        const monitor = this.performanceMonitor;
+        const memory = this.getMemoryUsage();
         
         const debugInfo = {
+            // Performance Metriken
+            'FPS': `${monitor.fps}`,
+            'MS': `${monitor.frameTime.toFixed(1)}`,
+            'MB': memory ? `${memory.used}/${memory.total}` : 'N/A',
+            
+            // Three.js Render Stats
+            'Draw Calls': renderer.info.render.calls,
+            'Triangles': renderer.info.render.triangles.toLocaleString(),
             'Geometries': renderer.info.memory.geometries,
             'Textures': renderer.info.memory.textures,
-            'Draw Calls': renderer.info.render.calls,
-            'Triangles': renderer.info.render.triangles,
-            'Scene Objects': scene.children.length,
+            
+            // Scene Info
+            'Objects': scene.children.length,
             'Time': this.lightingManager.getTimeString(),
-            'Season': this.lightingManager.getCurrentSeason()
+            'Season': this.lightingManager.getCurrentSeason(),
+            
+            // Memory Details (falls verfügbar)
+            ...(memory && {
+                'Heap Limit': `${memory.limit} MB`
+            })
         };
         
         this.uiController.showDebugInfo(debugInfo);

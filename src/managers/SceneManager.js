@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { CameraManager } from './CameraManager.js';
 
 /**
  * SceneManager - Verwaltet die Three.js Grundkomponenten
@@ -12,9 +13,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 export class SceneManager {
     constructor(canvasId = 'webgl-canvas') {
         this.scene = null;
-        this.camera = null;
+        this.cameraManager = null;
         this.renderer = null;
-        this.controls = null;
         this.clock = new THREE.Clock();
         this.canvas = document.getElementById(canvasId);
         
@@ -27,9 +27,8 @@ export class SceneManager {
     
     init() {
         this.setupScene();
-        this.setupCamera();
         this.setupRenderer();
-        this.setupControls();
+        this.setupCameraManager();
         this.setupEventListeners();
     }
     
@@ -39,17 +38,6 @@ export class SceneManager {
         
         // Fog für Atmosphäre
         this.scene.fog = new THREE.Fog(0x87CEEB, 50, 200);
-    }
-    
-    setupCamera() {
-        this.camera = new THREE.PerspectiveCamera(
-            75,
-            window.innerWidth / window.innerHeight,
-            0.1,
-            1000
-        );
-        this.camera.position.set(0, 20, 30);
-        this.camera.lookAt(0, 0, 0);
     }
     
     setupRenderer() {
@@ -66,13 +54,8 @@ export class SceneManager {
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
     
-    setupControls() {
-        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        this.controls.enableDamping = true;
-        this.controls.dampingFactor = 0.05;
-        this.controls.maxDistance = 100;
-        this.controls.minDistance = 5;
-        this.controls.maxPolarAngle = Math.PI / 2.2; // Verhindert Blick unter den Boden
+    setupCameraManager() {
+        this.cameraManager = new CameraManager(this.renderer);
     }
     
     setupEventListeners() {
@@ -80,25 +63,52 @@ export class SceneManager {
     }
     
     onWindowResize() {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        
+        // CameraManager über Resize informieren
+        this.cameraManager.resize(width, height);
+        
+        // Renderer aktualisieren
+        this.renderer.setSize(width, height);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     }
     
     resetCamera() {
-        this.camera.position.set(0, 20, 30);
-        this.camera.lookAt(0, 0, 0);
-        this.controls.reset();
+        // Reset für aktuellen Kamera-Modus
+        const currentMode = this.cameraManager.getCurrentMode();
+        const modes = this.cameraManager.getModes();
+        
+        if (currentMode === modes.DRONE) {
+            // Drohnen-Kamera zurücksetzen
+            this.cameraManager.droneCamera.position.set(0, 10, 10);
+            this.cameraManager.droneYaw = 0;
+            this.cameraManager.dronePitch = 0;
+            
+            // Quaternion korrekt zurücksetzen
+            const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+            this.cameraManager.droneCamera.quaternion.setFromEuler(euler);
+        } else if (currentMode === modes.PERSON) {
+            // Personen-Kamera zurücksetzen
+            this.cameraManager.personCamera.position.set(0, this.cameraManager.personHeight, 5);
+            this.cameraManager.personYaw = 0;
+            this.cameraManager.personPitch = 0;
+            
+            // Quaternion korrekt zurücksetzen
+            const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+            this.cameraManager.personCamera.quaternion.setFromEuler(euler);
+        }
     }
     
     update() {
         const deltaTime = this.clock.getDelta();
-        this.controls.update();
+        this.cameraManager.update(deltaTime);
         return deltaTime;
     }
     
     render() {
-        this.renderer.render(this.scene, this.camera);
+        const activeCamera = this.cameraManager.getActiveCamera();
+        this.renderer.render(this.scene, activeCamera);
     }
     
     // Getter für externe Module
@@ -107,15 +117,15 @@ export class SceneManager {
     }
     
     getCamera() {
-        return this.camera;
+        return this.cameraManager.getActiveCamera();
+    }
+    
+    getCameraManager() {
+        return this.cameraManager;
     }
     
     getRenderer() {
         return this.renderer;
-    }
-    
-    getControls() {
-        return this.controls;
     }
     
     // Utility methods
@@ -129,7 +139,9 @@ export class SceneManager {
     
     // Cleanup
     dispose() {
-        this.controls.dispose();
+        if (this.cameraManager) {
+            // CameraManager hat eigene Dispose-Logik falls nötig
+        }
         this.renderer.dispose();
         window.removeEventListener('resize', () => this.onWindowResize());
     }

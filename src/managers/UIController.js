@@ -11,6 +11,7 @@ export class UIController {
     constructor(lightingManager, sceneManager) {
         this.lightingManager = lightingManager;
         this.sceneManager = sceneManager;
+        this.cameraManager = null; // Wird später gesetzt
         
         // UI Elements
         this.elements = {
@@ -25,6 +26,7 @@ export class UIController {
         // Event State
         this.isFullscreen = false;
         this.keyStates = {};
+        this.debugVisible = false; // Debug Toggle State
         
         // Callbacks für externe Module
         this.onTimeChangeCallback = null;
@@ -152,6 +154,16 @@ export class UIController {
                 if (this.isFullscreen) {
                     this.exitFullscreen();
                 }
+                break;
+                
+            case 'KeyI':
+                event.preventDefault();
+                this.toggleDebugInfo();
+                break;
+                
+            case 'KeyC':
+                event.preventDefault();
+                this.toggleCameraMode();
                 break;
         }
     }
@@ -318,7 +330,20 @@ export class UIController {
     }
     
     // Debug Info
+    toggleDebugInfo() {
+        this.debugVisible = !this.debugVisible;
+        
+        if (this.debugVisible) {
+            console.log('🐛 Debug Info aktiviert');
+        } else {
+            this.hideDebugInfo();
+            console.log('🐛 Debug Info deaktiviert');
+        }
+    }
+    
     showDebugInfo(info) {
+        if (!this.debugVisible) return;
+        
         let debugDiv = document.querySelector('.webgl-info');
         if (!debugDiv) {
             debugDiv = document.createElement('div');
@@ -327,7 +352,7 @@ export class UIController {
         }
         
         debugDiv.innerHTML = `
-            <strong>Debug Info:</strong><br>
+            <strong>🐛 Debug Info</strong><br>
             ${Object.entries(info).map(([key, value]) => `${key}: ${value}`).join('<br>')}
         `;
     }
@@ -337,6 +362,105 @@ export class UIController {
         if (debugDiv) {
             debugDiv.remove();
         }
+        this.debugVisible = false;
+    }
+    
+    isDebugVisible() {
+        return this.debugVisible;
+    }
+    
+    // Camera Management
+    setCameraManager(cameraManager) {
+        this.cameraManager = cameraManager;
+        this.createCameraControls();
+        this.updateCameraUI();
+    }
+    
+    createCameraControls() {
+        // Prüfen ob bereits vorhanden
+        if (document.querySelector('.camera-controls')) return;
+        
+        // Kamera-Steuerelemente erstellen
+        const cameraPanel = document.createElement('div');
+        cameraPanel.className = 'camera-controls';
+        cameraPanel.innerHTML = `
+            <div class="camera-buttons">
+                <button id="droneMode" class="camera-btn active">🚁 Freie Kamera</button>
+                <button id="personMode" class="camera-btn">🚶 Person</button>
+            </div>
+            <div class="camera-info">
+                <span id="cameraStatus">Drohnen-Modus aktiv</span>
+                <div id="cameraHelp" class="camera-help">
+                    <small>WASD: In Blickrichtung | ←→↑↓: Schauen | Space/Shift: Vertikal</small>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(cameraPanel);
+        
+        // Event Listener für Kamera-Buttons
+        document.getElementById('droneMode').addEventListener('click', () => {
+            this.switchToMode('drone');
+        });
+        
+        document.getElementById('personMode').addEventListener('click', () => {
+            this.switchToMode('person');
+        });
+    }
+    
+    switchToMode(mode) {
+        if (!this.cameraManager) return;
+        
+        const modes = this.cameraManager.getModes();
+        
+        if (mode === 'drone') {
+            this.cameraManager.switchMode(modes.DRONE);
+        } else if (mode === 'person') {
+            this.cameraManager.switchMode(modes.PERSON);
+        }
+        
+        this.updateCameraUI();
+    }
+    
+    updateCameraUI() {
+        if (!this.cameraManager) return;
+        
+        const currentMode = this.cameraManager.getCurrentMode();
+        const modes = this.cameraManager.getModes();
+        
+        // Button-Status aktualisieren
+        const droneBtn = document.getElementById('droneMode');
+        const personBtn = document.getElementById('personMode');
+        const statusSpan = document.getElementById('cameraStatus');
+        const helpDiv = document.getElementById('cameraHelp');
+        
+        if (droneBtn && personBtn && statusSpan) {
+            droneBtn.classList.toggle('active', currentMode === modes.DRONE);
+            personBtn.classList.toggle('active', currentMode === modes.PERSON);
+            
+            // Status-Text und Hilfe aktualisieren
+            if (currentMode === modes.DRONE) {
+                statusSpan.textContent = 'Freie Kamera aktiv';
+                if (helpDiv) helpDiv.innerHTML = '<small>WASD: In Blickrichtung fliegen | ←→↑↓: Schauen | Space/Shift: Hoch/Runter</small>';
+            } else {
+                statusSpan.textContent = 'Personen-Modus aktiv';
+                if (helpDiv) helpDiv.innerHTML = '<small>WASD: Gehen | ←→↑↓: Umschauen | Shift/Strg: Rennen</small>';
+            }
+        }
+    }
+    
+    toggleCameraMode() {
+        if (!this.cameraManager) return;
+        
+        const currentMode = this.cameraManager.getCurrentMode();
+        const modes = this.cameraManager.getModes();
+        
+        // Zwischen den Modi wechseln
+        const newMode = currentMode === modes.DRONE ? modes.PERSON : modes.DRONE;
+        this.cameraManager.switchMode(newMode);
+        this.updateCameraUI();
+        
+        console.log(`Kamera-Modus gewechselt zu: ${newMode} (Taste C)`);
     }
     
     // Cleanup
